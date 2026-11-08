@@ -364,6 +364,9 @@ class Render
         std::vector<float*>original_textures;
         std::vector<std::pair<int, int>>img_sizes;
         std::vector<Object3D>objects;
+        vec3 camera_position{0.0f, 0.0f, 2.5f};
+        float camera_yaw = -1.57079632679f;
+        float camera_pitch = 0.0f;
 
         Render(int todo, int w, int h,  std::vector<std::string>meshes_paths, std::vector<std::string>texture_paths, vec3 l = {1, 0, 0}) : task(todo), width(w), height(h),
             pixels(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4),  z_buffer(static_cast<std::size_t>(w) * static_cast<std::size_t>(h), FARFARAWAY) {
@@ -374,6 +377,7 @@ class Render
                 unsigned tex_counter = 0;
                 unsigned obj_mesh_id = 0;
                 unsigned obj_tex_id = 0;
+                unsigned scalle_factor = 1;
 
                 meshes.resize(meshes_paths.size());
                 original_textures.resize(meshes_paths.size(), nullptr);
@@ -910,7 +914,12 @@ class Render
         float far_p = 100.0f;
 
         Mat4 proj = Mat4::perspective(fov, aspect, near_p, far_p);
-        Mat4 view = Mat4::lookAt({0.0f, 0.0f, 2.5f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
+        vec3 camera_direction{
+            std::cos(camera_yaw) * std::cos(camera_pitch),
+            std::sin(camera_pitch),
+            std::sin(camera_yaw) * std::cos(camera_pitch)
+        };
+        Mat4 view = Mat4::lookAt(camera_position, camera_position + camera_direction, {0.0f, 1.0f, 0.0f});
 
         Mat4 mvp = proj * view * model;
 
@@ -1022,15 +1031,15 @@ class Render
         std::fill(pixels.begin(), pixels.end(), 0);
         std::fill(z_buffer.begin(), z_buffer.end(), FARFARAWAY);
 
-        std::fprintf(stderr,
-                "task6: objects=%zu | mesh0: verts=%d tris=%d tcs=%p | tex0: %p %dx%d\n",
-                objects.size(),
-                objects.empty() ? 0 : meshes[objects[0].mesh_id].num_vertices,
-                objects.empty() ? 0 : meshes[objects[0].mesh_id].num_triangles,
-                objects.empty() ? nullptr : (void*)meshes[objects[0].mesh_id].tcs,
-                objects.empty() ? nullptr : (void*)original_textures[objects[0].tex_id],
-                objects.empty() ? 0 : img_sizes[objects[0].tex_id].first,
-                objects.empty() ? 0 : img_sizes[objects[0].tex_id].second);
+        // std::fprintf(stderr,
+        //         "task6: objects=%zu | mesh0: verts=%d tris=%d tcs=%p | tex0: %p %dx%d\n",
+        //         objects.size(),
+        //         objects.empty() ? 0 : meshes[objects[0].mesh_id].num_vertices,
+        //         objects.empty() ? 0 : meshes[objects[0].mesh_id].num_triangles,
+        //         objects.empty() ? nullptr : (void*)meshes[objects[0].mesh_id].tcs,
+        //         objects.empty() ? nullptr : (void*)original_textures[objects[0].tex_id],
+        //         objects.empty() ? 0 : img_sizes[objects[0].tex_id].first,
+        //         objects.empty() ? 0 : img_sizes[objects[0].tex_id].second);
 
         for (size_t i = 0; i < objects.size(); ++i) {
             const Object3D& obj = objects[i];
@@ -1048,19 +1057,52 @@ class Render
                         model);
 
         }
+
+
         return pixels;
     }
 
+
+
 };
+
+void mouse_callback(GLFWwindow* window, double xpos, double ypos)
+{
+    static bool first_mouse = true;
+    static double last_x = 0.0, last_y = 0.0;
+    if (first_mouse) {
+        last_x = xpos;
+        last_y = ypos;
+        first_mouse = false;
+        return;
+    }
+
+    Render* engine = static_cast<Render*>(glfwGetWindowUserPointer(window));
+    if (!engine) return;
+    engine.scale_factor = scale_factor;
+
+    const float sensitivity = 0.0025f;
+    engine->camera_yaw += static_cast<float>(xpos - last_x) * sensitivity;
+    engine->camera_pitch -= static_cast<float>(ypos - last_y) * sensitivity;
+    engine->camera_pitch = std::clamp(engine->camera_pitch, -1.553343f, 1.553343f);
+    last_x = xpos;
+    last_y = ypos;
+}
 
 int main(int argc, char** argv)
 {
-    const int width  = argc > 1 ? std::atoi(argv[1]) : 640;
-    const int height = argc > 2 ? std::atoi(argv[2]) : 480;
+    int width  = argc > 1 ? std::atoi(argv[1]) : 640;
+    int height = argc > 2 ? std::atoi(argv[2]) : 480;
     const int task = argc > 3 ? std::atoi(argv[3]) : 1;
     const int num_of_obj = argc > 4 ? std::atoi(argv[4]) : 1;
     const std::string path_to_mesh  = argc > 5 ? argv[5] : "resources/Bunny.obj";
     const std::string path_to_texture  = argc > 6 ? argv[6] : "resources/textures/porcelain.jpg";
+
+    const unsigned scale_factor = 2;
+
+    width /= scale_factor;
+    height /= scale_factor;
+
     if (width <= 0 || height <= 0)
     {
         std::printf("Usage: %s [width] [height]\n", argv[0]);
@@ -1127,6 +1169,11 @@ int main(int argc, char** argv)
     vec3 sun;
     sun.x = 0.3; sun.y = -1; sun.z = -0.7;
     Render engine(task, fb_width, fb_height, objects, texture_paths, sun);
+    if (task == 6) {
+        glfwSetWindowUserPointer(window, &engine);
+        glfwSetCursorPosCallback(window, mouse_callback);
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    }
 
     mesh obj = load_obj(path_to_mesh.c_str());
     obj = engine.scale_mesh(obj);
@@ -1136,6 +1183,20 @@ int main(int argc, char** argv)
         const double now = glfwGetTime();
         const auto dt = static_cast<float>(now - prev_time);
         prev_time = now;
+
+        if (task == 6) {
+            vec3 forward{
+                std::cos(engine.camera_yaw) * std::cos(engine.camera_pitch),
+                std::sin(engine.camera_pitch),
+                std::sin(engine.camera_yaw) * std::cos(engine.camera_pitch)
+            };
+            vec3 right = normalize(cross(forward, {0.0f, 1.0f, 0.0f}));
+            const float speed = 2.5f * dt;
+            if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) engine.camera_position = engine.camera_position + speed * forward;
+            if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) engine.camera_position = engine.camera_position - speed * forward;
+            if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) engine.camera_position = engine.camera_position - speed * right;
+            if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) engine.camera_position = engine.camera_position + speed * right;
+        }
 
         hue = std::fmod(hue + hue_speed * dt, 1.0f);
 
