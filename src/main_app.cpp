@@ -368,6 +368,8 @@ class Render
         float camera_yaw = -1.57079632679f;
         float camera_pitch = 0.0f;
 
+        unsigned scale_factor = 1;
+
         Render(int todo, int w, int h,  std::vector<std::string>meshes_paths, std::vector<std::string>texture_paths, vec3 l = {1, 0, 0}) : task(todo), width(w), height(h),
             pixels(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4),  z_buffer(static_cast<std::size_t>(w) * static_cast<std::size_t>(h), FARFARAWAY) {
                 light_dir = (1 / std::sqrt(l.x * l.x + l.y * l.y + l.z * l.z)) * l;
@@ -377,7 +379,6 @@ class Render
                 unsigned tex_counter = 0;
                 unsigned obj_mesh_id = 0;
                 unsigned obj_tex_id = 0;
-                unsigned scalle_factor = 1;
 
                 meshes.resize(meshes_paths.size());
                 original_textures.resize(meshes_paths.size(), nullptr);
@@ -1058,8 +1059,61 @@ class Render
 
         }
 
+        if (scale_factor == 1)
+            return pixels;
 
-        return pixels;
+        const int src_w = width;
+        const int src_h = height;
+        const int dst_w = width  * scale_factor;
+        const int dst_h = height * scale_factor;
+        const float inv_s = 1.0f / static_cast<float>(scale_factor);
+
+        std::vector<std::uint8_t> screen_pixels(4 * dst_w * dst_h);
+
+        for (int dy = 0; dy < dst_h; ++dy) {
+            // координата центра dst-строки в src-пространстве
+            float sy    = (dy + 0.5f) * inv_s - 0.5f;
+            int   y0    = (int)std::floor(sy);
+            float beta  = sy - y0;
+            int   y1    = y0 + 1;
+
+            y0 = std::clamp(y0, 0, src_h - 1);
+            y1 = std::clamp(y1, 0, src_h - 1);
+
+            const int row0 = y0 * src_w;
+            const int row1 = y1 * src_w;
+
+            for (int dx = 0; dx < dst_w; ++dx) {
+                float sx    = (dx + 0.5f) * inv_s - 0.5f;
+                int   x0    = (int)std::floor(sx);
+                float alpha = sx - x0;
+                int   x1    = x0 + 1;
+
+                x0 = std::clamp(x0, 0, src_w - 1);
+                x1 = std::clamp(x1, 0, src_w - 1);
+
+                const int i00 = (row0 + x0) * 4;
+                const int i10 = (row0 + x1) * 4;
+                const int i01 = (row1 + x0) * 4;
+                const int i11 = (row1 + x1) * 4;
+
+                const float w00 = (1 - alpha) * (1 - beta);
+                const float w10 =      alpha  * (1 - beta);
+                const float w01 = (1 - alpha) *      beta;
+                const float w11 =      alpha  *      beta;
+
+                const int o = (dy * dst_w + dx) * 4;
+
+                for (int c = 0; c < 4; ++c) {
+                    float v = w00 * pixels[i00 + c]
+                            + w10 * pixels[i10 + c]
+                            + w01 * pixels[i01 + c]
+                            + w11 * pixels[i11 + c];
+                    screen_pixels[o + c] = (std::uint8_t)std::clamp(v + 0.5f, 0.0f, 255.0f);
+                }
+            }
+        }
+        return screen_pixels;
     }
 
 
@@ -1079,7 +1133,6 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 
     Render* engine = static_cast<Render*>(glfwGetWindowUserPointer(window));
     if (!engine) return;
-    engine.scale_factor = scale_factor;
 
     const float sensitivity = 0.0025f;
     engine->camera_yaw += static_cast<float>(xpos - last_x) * sensitivity;
@@ -1100,8 +1153,8 @@ int main(int argc, char** argv)
 
     const unsigned scale_factor = 2;
 
-    width /= scale_factor;
-    height /= scale_factor;
+    // width /= scale_factor;
+    // height /= scale_factor;
 
     if (width <= 0 || height <= 0)
     {
@@ -1168,7 +1221,8 @@ int main(int argc, char** argv)
     int report_frames = 0;
     vec3 sun;
     sun.x = 0.3; sun.y = -1; sun.z = -0.7;
-    Render engine(task, fb_width, fb_height, objects, texture_paths, sun);
+    Render engine(task, fb_width / scale_factor, fb_height / scale_factor, objects, texture_paths, sun);
+    engine.scale_factor = scale_factor;
     if (task == 6) {
         glfwSetWindowUserPointer(window, &engine);
         glfwSetCursorPosCallback(window, mouse_callback);
