@@ -349,6 +349,12 @@ struct Object3D
     Object3D(unsigned m, unsigned t, vec3 v) : mesh_id(m), tex_id(t), where(v) {}
 };
 
+struct MipLevel {
+    int width;
+    int height;
+    std::vector<float> pixels;
+};
+
 class Render
 {
     public:
@@ -364,9 +370,23 @@ class Render
         std::vector<float*>original_textures;
         std::vector<std::pair<int, int>>img_sizes;
         std::vector<Object3D>objects;
+        std::vector<std::vector<MipLevel>>texture_mips;
         vec3 camera_position{0.0f, 0.0f, 2.5f};
         float camera_yaw = -1.57079632679f;
         float camera_pitch = 0.0f;
+        bool mip_debug = false;
+        bool derivative_mips = false;
+        bool terrain_camera = false;
+        std::vector<float> heightmap;
+        int heightmap_size = 256;
+        int terrain_grid_size = 65;
+        std::uint32_t terrain_seed = 1337;
+        mesh terrain_mesh{};
+        std::vector<vec2> terrain_grid;
+        std::vector<float*> skybox_images;
+        std::vector<std::pair<int, int>> skybox_sizes;
+        std::vector<MipLevel> grass_mips;
+        std::vector<MipLevel> rock_mips;
 
         unsigned scale_factor = 1;
 
@@ -383,6 +403,7 @@ class Render
                 meshes.resize(meshes_paths.size());
                 original_textures.resize(meshes_paths.size(), nullptr);
                 img_sizes.resize(meshes_paths.size());
+                texture_mips.resize(meshes_paths.size());
                 // objects.resize(meshes_paths.size());
 
                 for (int i = 0; i < (int)meshes_paths.size(); ++i) {
@@ -391,6 +412,8 @@ class Render
                     int wi = 0, hi = 0;
                     original_textures[i] = load_image_f32_rgb(texture_paths[i].c_str(), &wi, &hi, 1.0f);
                     img_sizes[i] = { wi, hi };
+                    if (original_textures[i])
+                        texture_mips[i] = build_mips(original_textures[i], wi, hi);
 
                     if (!mesh_mapa.contains(meshes_paths[i]))
                         mesh_mapa[meshes_paths[i]] = i;
@@ -403,7 +426,7 @@ class Render
                     std::random_device rd;
                     std::mt19937 gen(rd());
                     std::uniform_real_distribution<float> dist(-0.9f, 0.9f);
-                    vec3 place{ dist(gen), dist(gen), dist(gen) - 0.5f };
+                    vec3 place{ dist(gen), dist(gen) + 1.5f, dist(gen) - 0.5f };
 
                     objects.push_back(Object3D(obj_mesh_id, obj_tex_id, place));
                 }
@@ -421,11 +444,165 @@ class Render
                     free_mesh(&m);
                     m = scaled;
                 }
+
+                if (task == 6) {
+                    generate_terrain(terrain_seed);
+                    int w = 0, h = 0;
+                    float* grass = load_image_f32_rgb("resources/textures/Grass_09-256x256.png", &w, &h, 1.0f);
+                    if (grass) grass_mips = build_mips(grass, w, h);
+                    std::free(grass);
+                    float* rock = load_image_f32_rgb("resources/textures/Grass_13-256x256.png", &w, &h, 1.0f);
+                    if (rock) rock_mips = build_mips(rock, w, h);
+                    std::free(rock);
+                    const char* faces[] = {
+                        "resources/textures/skybox/hills_rt.png",
+                        "resources/textures/skybox/hills_lf.png",
+                        "resources/textures/skybox/hills_up.jpg",
+                        "resources/textures/skybox/hills_dn.png",
+                        "resources/textures/skybox/hills_ft.png",
+                        "resources/textures/skybox/hills_bk.png"
+                    };
+                    skybox_images.resize(6, nullptr);
+                    skybox_sizes.resize(6);
+                    for (int i = 0; i < 6; ++i)
+                        skybox_images[i] = load_image_f32_rgb(faces[i], &skybox_sizes[i].first, &skybox_sizes[i].second, 1.0f);
+                    camera_position = {0.0f, height_at(0.0f, 4.0f) + 2.0f, 4.0f};
+                    camera_pitch = -0.2f;
+                }
             }
 
         ~Render() {
             for (float* t : original_textures) std::free(t);
+            for (float* t : skybox_images) std::free(t);
             for (auto& m : meshes) free_mesh(&m);
+            free_mesh(&terrain_mesh);
+        }
+
+        std::vector<MipLevel> build_mips(const float* image, int w, int h) {
+            std::vector<MipLevel> levels;
+            if (!image || w <= 0 || h <= 0) return levels;
+            MipLevel base{w, h, std::vector<float>(image, image + static_cast<std::size_t>(w) * h * 3)};
+            levels.push_back(std::move(base));
+            while (w > 1 || h > 1) {
+                const MipLevel& src = levels.back();
+                int nw = std::max(1, (w + 1) / 2);
+                int nh = std::max(1, (h + 1) / 2);
+                MipLevel dst{nw, nh, std::vector<float>(static_cast<std::size_t>(nw) * nh * 3)};
+                for (int y = 0; y < nh; ++y) {
+                    for (int x = 0; x < nw; ++x) {
+                        int count = 0;
+                        for (int oy = 0; oy < 2; ++oy) {
+                            for (int ox = 0; ox < 2; ++ox) {
+                                int sx = 2 * x + ox, sy = 2 * y + oy;
+                                if (sx >= w || sy >= h) continue;
+                                for (int c = 0; c < 3; ++c)
+                                    dst.pixels[(static_cast<std::size_t>(y) * nw + x) * 3 + c] += src.pixels[(static_cast<std::size_t>(sy) * w + sx) * 3 + c];
+                                ++count;
+                            }
+                        }
+                        for (int c = 0; c < 3; ++c)
+                            dst.pixels[(static_cast<std::size_t>(y) * nw + x) * 3 + c] /= count;
+                    }
+                }
+                levels.push_back(std::move(dst));
+                w = nw;
+                h = nh;
+            }
+            return levels;
+        }
+
+        float noise_hash(int x, int y, std::uint32_t seed, int period) const {
+            x = (x % period + period) % period;
+            y = (y % period + period) % period;
+            std::uint32_t n = static_cast<std::uint32_t>(x) * 374761393u + static_cast<std::uint32_t>(y) * 668265263u + static_cast<std::uint32_t>(seed) * 1442695041u;
+            n = (n ^ (n >> 13)) * 1274126177u;
+            n ^= n >> 16;
+            return static_cast<float>(n) / static_cast<float>(UINT32_MAX) * 2.0f - 1.0f;
+        }
+
+        float value_noise(float x, float y, std::uint32_t seed, int period) const {
+            int ix = static_cast<int>(std::floor(x)), iy = static_cast<int>(std::floor(y));
+            float fx = x - ix, fy = y - iy;
+            fx = fx * fx * (3.0f - 2.0f * fx);
+            fy = fy * fy * (3.0f - 2.0f * fy);
+            float a = noise_hash(ix, iy, seed, period);
+            float b = noise_hash(ix + 1, iy, seed, period);
+            float c = noise_hash(ix, iy + 1, seed, period);
+            float d = noise_hash(ix + 1, iy + 1, seed, period);
+            return (1.0f - fy) * ((1.0f - fx) * a + fx * b) + fy * ((1.0f - fx) * c + fx * d);
+        }
+
+        float terrain_noise(float x, float y, std::uint32_t seed) const {
+            float sum = 0.0f, amplitude = 1.0f, total = 0.0f;
+            for (int octave = 0; octave < 5; ++octave) {
+                int frequency = 1 << octave;
+                sum += amplitude * value_noise(x * frequency / 32.0f, y * frequency / 32.0f, seed + octave, 8 * frequency);
+                total += amplitude;
+                amplitude *= 0.5f;
+            }
+            return sum / total;
+        }
+
+        void generate_terrain(std::uint32_t seed) {
+            heightmap.resize(static_cast<std::size_t>(heightmap_size) * heightmap_size);
+            for (int y = 0; y < heightmap_size; ++y)
+                for (int x = 0; x < heightmap_size; ++x)
+                    heightmap[static_cast<std::size_t>(y) * heightmap_size + x] = 0.5f + 0.5f * terrain_noise(static_cast<float>(x), static_cast<float>(y), seed);
+
+            const int side = terrain_grid_size;
+            const float radius = (side - 1) * 0.5f;
+            terrain_mesh.num_vertices = side * side;
+            terrain_mesh.num_triangles = (side - 1) * (side - 1) * 2;
+            terrain_mesh.verts = static_cast<vec3*>(std::malloc(terrain_mesh.num_vertices * sizeof(vec3)));
+            terrain_mesh.normals = static_cast<vec3*>(std::malloc(terrain_mesh.num_vertices * sizeof(vec3)));
+            terrain_mesh.tcs = static_cast<vec2*>(std::malloc(terrain_mesh.num_vertices * sizeof(vec2)));
+            terrain_mesh.indices = static_cast<int*>(std::malloc(terrain_mesh.num_triangles * 3 * sizeof(int)));
+            terrain_grid.resize(terrain_mesh.num_vertices);
+            for (int z = 0; z < side; ++z) {
+                for (int x = 0; x < side; ++x) {
+                    int i = z * side + x;
+                    terrain_grid[i] = {x - radius, z - radius};
+                    terrain_mesh.verts[i] = {x - radius, 0.0f, z - radius};
+                    terrain_mesh.normals[i] = {0.0f, 1.0f, 0.0f};
+                    terrain_mesh.tcs[i] = {0.0f, 0.0f};
+                }
+            }
+            int t = 0;
+            for (int z = 0; z < side - 1; ++z) {
+                for (int x = 0; x < side - 1; ++x) {
+                    int a = z * side + x, b = a + side, c = a + 1, d = b + 1;
+                    terrain_mesh.indices[t++] = a; terrain_mesh.indices[t++] = b; terrain_mesh.indices[t++] = c;
+                    terrain_mesh.indices[t++] = c; terrain_mesh.indices[t++] = b; terrain_mesh.indices[t++] = d;
+                }
+            }
+        }
+
+        float height_at(float x, float z) const {
+            if (heightmap.empty()) return 0.0f;
+            float fx = x * 2.0f + heightmap_size * 0.5f;
+            float fy = z * 2.0f + heightmap_size * 0.5f;
+            int x0 = static_cast<int>(std::floor(fx)), y0 = static_cast<int>(std::floor(fy));
+            float ax = fx - x0, ay = fy - y0;
+            auto at = [&](int px, int py) {
+                px = (px % heightmap_size + heightmap_size) % heightmap_size;
+                py = (py % heightmap_size + heightmap_size) % heightmap_size;
+                return heightmap[static_cast<std::size_t>(py) * heightmap_size + px];
+            };
+            float h0 = at(x0, y0) * (1.0f - ax) + at(x0 + 1, y0) * ax;
+            float h1 = at(x0, y0 + 1) * (1.0f - ax) + at(x0 + 1, y0 + 1) * ax;
+            return (h0 * (1.0f - ay) + h1 * ay) * 5.0f;
+        }
+
+        void update_terrain() {
+            float origin_x = std::round(camera_position.x);
+            float origin_z = std::round(camera_position.z);
+            for (int i = 0; i < terrain_mesh.num_vertices; ++i) {
+                float x = origin_x + terrain_grid[i].x;
+                float z = origin_z + terrain_grid[i].y;
+                terrain_mesh.verts[i] = {x, height_at(x, z), z};
+                terrain_mesh.normals[i] = normalize({height_at(x - 0.5f, z) - height_at(x + 0.5f, z), 1.0f, height_at(x, z - 0.5f) - height_at(x, z + 0.5f)});
+                terrain_mesh.tcs[i] = {x * 0.08f, z * 0.08f};
+            }
         }
 
         std::vector<std::uint8_t> render_default() {
@@ -719,7 +896,42 @@ class Render
         return out;
     }
 
-    void render_triangle_3d(const Polygon3D& poly, float* img, int w, int h) {
+    vec3 sample_level(const MipLevel& level, float u, float v, bool repeat) const {
+        float fx = u * level.width - 0.5f, fy = v * level.height - 0.5f;
+        int ix = static_cast<int>(std::floor(fx)), iy = static_cast<int>(std::floor(fy));
+        float ax = fx - ix, ay = fy - iy;
+        auto coordinate = [&](int p, int size) {
+            return repeat ? (p % size + size) % size : std::clamp(p, 0, size - 1);
+        };
+        auto sample = [&](int x, int y, int c) {
+            x = coordinate(x, level.width);
+            y = coordinate(y, level.height);
+            return level.pixels[(static_cast<std::size_t>(y) * level.width + x) * 3 + c];
+        };
+        float rgb[3];
+        for (int c = 0; c < 3; ++c) {
+            float a = sample(ix, iy, c) * (1.0f - ax) + sample(ix + 1, iy, c) * ax;
+            float b = sample(ix, iy + 1, c) * (1.0f - ax) + sample(ix + 1, iy + 1, c) * ax;
+            rgb[c] = a * (1.0f - ay) + b * ay;
+        }
+        return {rgb[0], rgb[1], rgb[2]};
+    }
+
+    vec3 sample_mips(const std::vector<MipLevel>& levels, float u, float v, float lod, bool repeat) const {
+        if (levels.empty()) return {1.0f, 1.0f, 1.0f};
+        lod = std::clamp(lod, 0.0f, static_cast<float>(levels.size() - 1));
+        int lo = static_cast<int>(std::floor(lod));
+        int hi = std::min(lo + 1, static_cast<int>(levels.size()) - 1);
+        float blend = lod - lo;
+        vec3 a = sample_level(levels[lo], u, v, repeat);
+        vec3 b = sample_level(levels[hi], u, v, repeat);
+        return (1.0f - blend) * a + blend * b;
+    }
+
+    void render_triangle_3d(const Polygon3D& poly, float* img, int w, int h,
+                            const std::vector<MipLevel>* mips = nullptr,
+                            const std::vector<MipLevel>* rock = nullptr,
+                            bool terrain = false) {
         const vec3& v1 = poly.p1;
         const vec3& v2 = poly.p2;
         const vec3& v3 = poly.p3;
@@ -786,7 +998,7 @@ class Render
                             vec3 n = normalize(b1*poly.n1 + b2*poly.n2 + b3*poly.n3);
                             float br = std::max(dot(n, (-1)*light_dir), 0.0f) + 0.07f;
 
-                            if (img == nullptr || w <= 0 || h <= 0) {
+                            if ((!mips || mips->empty()) && (img == nullptr || w <= 0 || h <= 0)) {
                                 std::uint8_t v = static_cast<std::uint8_t>(br * 255.0f);
                                 pixels[idx*4+0] = pixels[idx*4+1] = pixels[idx*4+2] = v;
                                 pixels[idx*4+3] = 255;
@@ -802,20 +1014,76 @@ class Render
                                           + b2*poly.t2.y*poly.inv_w2
                                           + b3*poly.t3.y*poly.inv_w3 ) / inv_w_p;
 
-                                float ti = u*w - 0.5f, tj = v*h - 0.5f;
-                                int tx = (int)std::floor(ti), ty = (int)std::floor(tj);
-                                float alpha = ti - tx, beta = tj - ty;
-                                int x0 = std::clamp(tx, 0, w-1), x1 = std::clamp(tx+1, 0, w-1);
-                                int y0 = std::clamp(ty, 0, h-1), y1 = std::clamp(ty+1, 0, h-1);
-                                auto samp = [&](int c) {
-                                    return (1-alpha)*(1-beta)*img[(y0*w + x0)*3 + c]
-                                         +      alpha *(1-beta)*img[(y0*w + x1)*3 + c]
-                                         + (1-alpha)*     beta *img[(y1*w + x0)*3 + c]
-                                         +      alpha *     beta *img[(y1*w + x1)*3 + c];
-                                };
-                                pixels[idx*4+0] = (std::uint8_t)std::clamp(samp(0)*255.0f * br, 0.0f, 255.0f);
-                                pixels[idx*4+1] = (std::uint8_t)std::clamp(samp(1)*255.0f * br, 0.0f, 255.0f);
-                                pixels[idx*4+2] = (std::uint8_t)std::clamp(samp(2)*255.0f * br, 0.0f, 255.0f);
+                                float lod = 0.0f;
+                                const int tw = mips && !mips->empty() ? mips->front().width : w;
+                                const int th = mips && !mips->empty() ? mips->front().height : h;
+                                if (mips && !mips->empty()) {
+                                    if (derivative_mips) {
+                                        float dbdx[3] = {(v3.y - v2.y) / area2, (v1.y - v3.y) / area2, (v2.y - v1.y) / area2};
+                                        float dbdy[3] = {(v3.x - v2.x) / area2, (v1.x - v3.x) / area2, (v2.x - v1.x) / area2};
+                                        float invws[3] = {poly.inv_w1, poly.inv_w2, poly.inv_w3};
+                                        float us[3] = {poly.t1.x, poly.t2.x, poly.t3.x};
+                                        float vs[3] = {poly.t1.y, poly.t2.y, poly.t3.y};
+                                        float bs[3] = {b1, b2, b3};
+                                        float ddenx = 0.0f, ddeny = 0.0f, dunx = 0.0f, duny = 0.0f, dvnx = 0.0f, dvny = 0.0f;
+                                        float un = 0.0f, vn = 0.0f;
+                                        for (int k = 0; k < 3; ++k) {
+                                            ddenx += dbdx[k] * invws[k];
+                                            ddeny += dbdy[k] * invws[k];
+                                            dunx += dbdx[k] * us[k] * invws[k];
+                                            duny += dbdy[k] * us[k] * invws[k];
+                                            dvnx += dbdx[k] * vs[k] * invws[k];
+                                            dvny += dbdy[k] * vs[k] * invws[k];
+                                            un += bs[k] * us[k] * invws[k];
+                                            vn += bs[k] * vs[k] * invws[k];
+                                        }
+                                        float du_dx = (dunx * inv_w_p - un * ddenx) / (inv_w_p * inv_w_p);
+                                        float du_dy = (duny * inv_w_p - un * ddeny) / (inv_w_p * inv_w_p);
+                                        float dv_dx = (dvnx * inv_w_p - vn * ddenx) / (inv_w_p * inv_w_p);
+                                        float dv_dy = (dvny * inv_w_p - vn * ddeny) / (inv_w_p * inv_w_p);
+                                        float rho_x = std::sqrt(du_dx * du_dx * tw * tw + dv_dx * dv_dx * th * th);
+                                        float rho_y = std::sqrt(du_dy * du_dy * tw * tw + dv_dy * dv_dy * th * th);
+                                        lod = std::log2(std::max({rho_x, rho_y, 1.0f}));
+                                    } else {
+                                        float near_p = 0.1f, far_p = 100.0f;
+                                        float distance = (2.0f * near_p * far_p) / (far_p + near_p - z_ndc * (far_p - near_p));
+                                        lod = std::log2(std::max(1.0f, distance * 0.25f));
+                                    }
+                                    lod = std::clamp(lod, 0.0f, static_cast<float>(mips->size() - 1));
+                                }
+
+                                if (mip_debug && mips && !mips->empty()) {
+                                    int level = std::clamp(static_cast<int>(std::lround(lod)), 0, static_cast<int>(mips->size()) - 1);
+                                    float color[3];
+                                    hue_to_rgb(static_cast<float>(level) / mips->size(), color);
+                                    for (int c = 0; c < 3; ++c)
+                                        pixels[idx * 4 + c] = static_cast<std::uint8_t>(color[c] * 255.0f);
+                                } else if (mips && !mips->empty()) {
+                                    vec3 color = sample_mips(*mips, u, v, lod, terrain);
+                                    if (terrain && rock && !rock->empty()) {
+                                        vec3 stone = sample_mips(*rock, u, v, lod, true);
+                                        float amount = std::clamp((0.9f - n.y) / 0.4f, 0.0f, 1.0f);
+                                        color = (1.0f - amount) * color + amount * stone;
+                                    }
+                                    pixels[idx*4+0] = (std::uint8_t)std::clamp(color.x * 255.0f * br, 0.0f, 255.0f);
+                                    pixels[idx*4+1] = (std::uint8_t)std::clamp(color.y * 255.0f * br, 0.0f, 255.0f);
+                                    pixels[idx*4+2] = (std::uint8_t)std::clamp(color.z * 255.0f * br, 0.0f, 255.0f);
+                                } else {
+                                    float ti = u*w - 0.5f, tj = v*h - 0.5f;
+                                    int tx = (int)std::floor(ti), ty = (int)std::floor(tj);
+                                    float alpha = ti - tx, beta = tj - ty;
+                                    int x0 = std::clamp(tx, 0, w-1), x1 = std::clamp(tx+1, 0, w-1);
+                                    int y0 = std::clamp(ty, 0, h-1), y1 = std::clamp(ty+1, 0, h-1);
+                                    auto samp = [&](int c) {
+                                        return (1-alpha)*(1-beta)*img[(y0*w + x0)*3 + c]
+                                             +      alpha *(1-beta)*img[(y0*w + x1)*3 + c]
+                                             + (1-alpha)*     beta *img[(y1*w + x0)*3 + c]
+                                             +      alpha *     beta *img[(y1*w + x1)*3 + c];
+                                    };
+                                    pixels[idx*4+0] = (std::uint8_t)std::clamp(samp(0)*255.0f * br, 0.0f, 255.0f);
+                                    pixels[idx*4+1] = (std::uint8_t)std::clamp(samp(1)*255.0f * br, 0.0f, 255.0f);
+                                    pixels[idx*4+2] = (std::uint8_t)std::clamp(samp(2)*255.0f * br, 0.0f, 255.0f);
+                                }
                                 pixels[idx*4+3] = 255;
                             }
 
@@ -904,7 +1172,11 @@ class Render
         m.normals = acc;
     }
 
-    std::vector<std::uint8_t> render_mesh(mesh& mesh_o, float* texture, int w, int h, const Mat4& model = Mat4::identity()) {
+    std::vector<std::uint8_t> render_mesh(mesh& mesh_o, float* texture, int w, int h,
+                                          const Mat4& model = Mat4::identity(),
+                                          const std::vector<MipLevel>* mips = nullptr,
+                                          const std::vector<MipLevel>* rock = nullptr,
+                                          bool terrain = false) {
         if (mesh_o.normals == NULL) {
             make_normals(mesh_o);
         }
@@ -925,22 +1197,6 @@ class Render
         Mat4 mvp = proj * view * model;
 
         float *img = texture;
-
-        if (mesh_o.normals) {
-            int flat = 0, smooth = 0;
-            for (int t = 0; t < mesh_o.num_triangles; ++t) {
-                vec3 a = mesh_o.normals[mesh_o.indices[3*t+0]];
-                vec3 b = mesh_o.normals[mesh_o.indices[3*t+1]];
-                vec3 c = mesh_o.normals[mesh_o.indices[3*t+2]];
-                if (dot(a, b) > 0.9999f && dot(a, c) > 0.9999f) flat++;
-                else smooth++;
-            }
-            bool split = (mesh_o.num_vertices == 3 * mesh_o.num_triangles);
-            std::fprintf(stderr,
-                "mesh v=%d t=%d split=%s flat_faces=%d smooth_faces=%d\n",
-                mesh_o.num_vertices, mesh_o.num_triangles,
-                split ? "YES" : "no", flat, smooth);
-        }
 
         for (int i = 0; i < mesh_o.num_triangles; ++i) {
             int i0 = mesh_o.indices[i * 3 + 0];
@@ -995,7 +1251,7 @@ class Render
             float iw2 = 1.0f / clip_coords[2].w;
 
             Polygon3D poly(screen_coords[0], screen_coords[1], screen_coords[2], bright1, bright2, bright3, tc1, tc2, tc3, iw0, iw1, iw2, n1, n2, n3);
-            render_triangle_3d(poly, img, w, h);
+            render_triangle_3d(poly, img, w, h, mips, rock, terrain);
 
         }
 
@@ -1003,6 +1259,65 @@ class Render
         if (task == 3) visualize_depth();
 
         return pixels;
+    }
+
+    void draw_skybox() {
+        if (skybox_images.size() != 6) return;
+        vec3 forward{
+            std::cos(camera_yaw) * std::cos(camera_pitch),
+            std::sin(camera_pitch),
+            std::sin(camera_yaw) * std::cos(camera_pitch)
+        };
+        vec3 right = normalize(cross(forward, {0.0f, 1.0f, 0.0f}));
+        vec3 up = normalize(cross(right, forward));
+        float tan_half = std::tan(60.0f * 3.14159265f / 360.0f);
+        float aspect = static_cast<float>(width) / height;
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                int idx = y * width + x;
+                if (z_buffer[idx] < FARFARAWAY) continue;
+                float sx = (2.0f * (x + 0.5f) / width - 1.0f) * tan_half * aspect;
+                float sy = (2.0f * (y + 0.5f) / height - 1.0f) * tan_half;
+                vec3 ray = normalize(forward + sx * right + sy * up);
+                float ax = std::fabs(ray.x), ay = std::fabs(ray.y), az = std::fabs(ray.z);
+                int face;
+                float u, v, major;
+                if (ax >= ay && ax >= az) {
+                    major = ax;
+                    if (ray.x >= 0.0f) { face = 0; u = -ray.z / major; }
+                    else { face = 1; u = ray.z / major; }
+                    v = ray.y / major;
+                } else if (ay >= ax && ay >= az) {
+                    major = ay;
+                    face = ray.y >= 0.0f ? 2 : 3;
+                    u = ray.x / major;
+                    v = (ray.y >= 0.0f ? -ray.z : ray.z) / major;
+                } else {
+                    major = az;
+                    if (ray.z >= 0.0f) { face = 4; u = ray.x / major; }
+                    else { face = 5; u = -ray.x / major; }
+                    v = ray.y / major;
+                }
+                if (!skybox_images[face]) continue;
+                u = u * 0.5f + 0.5f;
+                v = v * 0.5f + 0.5f;
+                int iw = skybox_sizes[face].first, ih = skybox_sizes[face].second;
+                float fx = u * iw - 0.5f, fy = v * ih - 0.5f;
+                int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, iw - 1);
+                int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, ih - 1);
+                int x1 = std::min(x0 + 1, iw - 1), y1 = std::min(y0 + 1, ih - 1);
+                float a = fx - std::floor(fx), b = fy - std::floor(fy);
+                for (int c = 0; c < 3; ++c) {
+                    float c00 = skybox_images[face][(y0 * iw + x0) * 3 + c];
+                    float c10 = skybox_images[face][(y0 * iw + x1) * 3 + c];
+                    float c01 = skybox_images[face][(y1 * iw + x0) * 3 + c];
+                    float c11 = skybox_images[face][(y1 * iw + x1) * 3 + c];
+                    float value = (1.0f - b) * ((1.0f - a) * c00 + a * c10) + b * ((1.0f - a) * c01 + a * c11);
+                    pixels[idx * 4 + c] = static_cast<std::uint8_t>(std::clamp(value * 255.0f, 0.0f, 255.0f));
+                }
+                pixels[idx * 4 + 3] = 255;
+            }
+        }
     }
 
     std::vector<std::uint8_t> forward(Polygon& content) {
@@ -1021,7 +1336,9 @@ class Render
                 return render_mesh(content,
                                    original_textures[0],
                                    img_sizes[0].first,
-                                   img_sizes[0].second);
+                                   img_sizes[0].second,
+                                   Mat4::identity(),
+                                   texture_mips.empty() ? nullptr : &texture_mips[0]);
             }
             return render_mesh(content, nullptr, 0, 0);
         }
@@ -1031,6 +1348,12 @@ class Render
     std::vector<std::uint8_t> inner_forward() {
         std::fill(pixels.begin(), pixels.end(), 0);
         std::fill(z_buffer.begin(), z_buffer.end(), FARFARAWAY);
+
+        if (task == 6) {
+            update_terrain();
+            render_mesh(terrain_mesh, nullptr, 0, 0,
+                        Mat4::identity(), &grass_mips, &rock_mips, true);
+        }
 
         // std::fprintf(stderr,
         //         "task6: objects=%zu | mesh0: verts=%d tris=%d tcs=%p | tex0: %p %dx%d\n",
@@ -1048,16 +1371,19 @@ class Render
             // mesh placed = place(meshes[obj.mesh_id], obj.where);
             Mat4 model = Mat4::identity();
             model.m[0][3] = obj.where.x;
-            model.m[1][3] = obj.where.y;
+            model.m[1][3] = obj.where.y + (task == 6 ? height_at(obj.where.x, obj.where.z) : 0.0f);
             model.m[2][3] = obj.where.z;
 
             render_mesh(meshes[obj.mesh_id],
                         original_textures[obj.tex_id],
                         img_sizes[obj.tex_id].first,
                         img_sizes[obj.tex_id].second,
-                        model);
+                        model,
+                        obj.tex_id < texture_mips.size() ? &texture_mips[obj.tex_id] : nullptr);
 
         }
+
+        if (task == 6) draw_skybox();
 
         if (scale_factor == 1)
             return pixels;
@@ -1223,20 +1549,31 @@ int main(int argc, char** argv)
     sun.x = 0.3; sun.y = -1; sun.z = -0.7;
     Render engine(task, fb_width / scale_factor, fb_height / scale_factor, objects, texture_paths, sun);
     engine.scale_factor = scale_factor;
+    glfwSetWindowUserPointer(window, &engine);
     if (task == 6) {
-        glfwSetWindowUserPointer(window, &engine);
         glfwSetCursorPosCallback(window, mouse_callback);
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     }
 
     mesh obj = load_obj(path_to_mesh.c_str());
     obj = engine.scale_mesh(obj);
+    bool m_was_down = false, b_was_down = false, t_was_down = false;
 
     while (!glfwWindowShouldClose(window))
     {
         const double now = glfwGetTime();
         const auto dt = static_cast<float>(now - prev_time);
         prev_time = now;
+
+        bool m_down = glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS;
+        bool b_down = glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS;
+        bool t_down = glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS;
+        if (m_down && !m_was_down) engine.mip_debug = !engine.mip_debug;
+        if (b_down && !b_was_down) engine.derivative_mips = !engine.derivative_mips;
+        if (t_down && !t_was_down) engine.terrain_camera = !engine.terrain_camera;
+        m_was_down = m_down;
+        b_was_down = b_down;
+        t_was_down = t_down;
 
         if (task == 6) {
             vec3 forward{
@@ -1250,6 +1587,8 @@ int main(int argc, char** argv)
             if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) engine.camera_position = engine.camera_position - speed * forward;
             if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) engine.camera_position = engine.camera_position - speed * right;
             if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) engine.camera_position = engine.camera_position + speed * right;
+            if (engine.terrain_camera)
+                engine.camera_position.y = engine.height_at(engine.camera_position.x, engine.camera_position.z) + 1.8f;
         }
 
         hue = std::fmod(hue + hue_speed * dt, 1.0f);
