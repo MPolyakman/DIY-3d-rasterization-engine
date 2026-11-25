@@ -167,16 +167,16 @@ mesh load_obj(const char *filename)
 
     if (valid)
     {
-        m.verts = malloc(num_corners * sizeof(vec3));
-        m.normals = has_normals ? malloc(num_corners * sizeof(vec3)) : NULL;
-        m.tcs = has_tcs ? malloc(num_corners * sizeof(vec2)) : NULL;
-        m.indices = malloc(num_corners * sizeof(int));
+        m.verts = (vec3 *)malloc(num_corners * sizeof(vec3));
+        m.normals = has_normals ? (vec3 *)malloc(num_corners * sizeof(vec3)) : NULL;
+        m.tcs = has_tcs ? (vec2 *)malloc(num_corners * sizeof(vec2)) : NULL;
+        m.indices = (int *)malloc(num_corners * sizeof(int));
         m.num_triangles = num_corners/3;
 
         uint32_t table_size = 1;
         while (table_size < 2 * (uint32_t)num_corners)
             table_size *= 2;
-        vertex_slot *table = malloc(table_size * sizeof(vertex_slot));
+        vertex_slot *table = (vertex_slot *)malloc(table_size * sizeof(vertex_slot));
         for (uint32_t i = 0; i < table_size; i++)
             table[i].id = -1;
 
@@ -211,11 +211,11 @@ mesh load_obj(const char *filename)
 
         free(table);
 
-        m.verts = realloc(m.verts, m.num_vertices * sizeof(vec3));
+        m.verts = (vec3 *)realloc(m.verts, m.num_vertices * sizeof(vec3));
         if (m.normals)
-            m.normals = realloc(m.normals, m.num_vertices * sizeof(vec3));
+            m.normals = (vec3 *)realloc(m.normals, m.num_vertices * sizeof(vec3));
         if (m.tcs)
-            m.tcs = realloc(m.tcs, m.num_vertices * sizeof(vec2));
+            m.tcs = (vec2 *)realloc(m.tcs, m.num_vertices * sizeof(vec2));
     }
     else
     {

@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
-project(RasterTemplate C CXX)                    # ← was: project(RasterTemplate C)
+project(RasterTemplate C CXX)
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 20)                       # ← added
-set(CMAKE_CXX_STANDARD_REQUIRED ON)              # ← added
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # По умолчанию собираем Release: программный растеризатор в Debug в разы медленнее
@@ -29,8 +29,10 @@ endif()
 # --- утилиты шаблона: загрузка .obj и картинок ----------------------------
 # Сюда же можно добавлять свои файлы (математика, растеризатор, ...)
 add_library(raster_utils STATIC
-    src/image_utils.c
-    src/mesh_utils.c
+    src/image_utils.cpp
+    src/mesh_utils.cpp
+    src/render.cpp
+    src/geomath.cpp
 )
 target_include_directories(raster_utils PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR})
 if(NOT MSVC)

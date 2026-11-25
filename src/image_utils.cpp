@@ -18,7 +18,7 @@ static inline unsigned char tonemap(float x, float a_gammaInv)
 int save_image_f32_png_rgb(const float *data, const char *filename, int w, int h, int channels, float gamma)
 {
     const float gammaInv = 1.0f/gamma;
-    unsigned char *data_rgba8 = malloc(4 * w * h);
+    unsigned char *data_rgba8 = (unsigned char *)malloc(4 * w * h);
 
     if (channels == 0)
         return -1;
@@ -79,7 +79,7 @@ float *load_image_f32_rgb(const char *filename, int *w, int *h, float gamma)
 {
     int channels = 0;
     stbi_uc *raw_data = stbi_load(filename, w, h, &channels, 3);
-    if (channels != 3 || raw_data == NULL || w <= 0 || h<= 0)
+    if (channels != 3 || raw_data == NULL || *w <= 0 || *h <= 0)
     {
         if (raw_data)
             STBI_FREE(raw_data);
@@ -103,7 +103,7 @@ float *load_image_f32_rgb(const char *filename, int *w, int *h, float gamma)
     }
 
     int sz = 3*(*w)*(*h);
-    float *data_f32 = malloc(sz*sizeof(float));
+    float *data_f32 = (float *)malloc(sz*sizeof(float));
     for (int i=0; i<sz; i++)
         data_f32[i] = powf(raw_data[i]/255.0f, gamma);
 
