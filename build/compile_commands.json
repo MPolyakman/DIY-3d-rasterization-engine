@@ -1,0 +1,38 @@
+[
+{
+  "directory": "/home/pole/code/CG/RasterTemplate/build",
+  "command": "/usr/sbin/c++  -I/home/pole/code/CG/RasterTemplate/src -I/home/pole/code/CG/RasterTemplate -O3 -DNDEBUG -std=gnu++20 -Wall -Wno-unused-function -O3 -march=native -o CMakeFiles/raster_utils.dir/src/image_utils.cpp.o -c /home/pole/code/CG/RasterTemplate/src/image_utils.cpp",
+  "file": "/home/pole/code/CG/RasterTemplate/src/image_utils.cpp",
+  "output": "CMakeFiles/raster_utils.dir/src/image_utils.cpp.o"
+},
+{
+  "directory": "/home/pole/code/CG/RasterTemplate/build",
+  "command": "/usr/sbin/c++  -I/home/pole/code/CG/RasterTemplate/src -I/home/pole/code/CG/RasterTemplate -O3 -DNDEBUG -std=gnu++20 -Wall -Wno-unused-function -O3 -march=native -o CMakeFiles/raster_utils.dir/src/mesh_utils.cpp.o -c /home/pole/code/CG/RasterTemplate/src/mesh_utils.cpp",
+  "file": "/home/pole/code/CG/RasterTemplate/src/mesh_utils.cpp",
+  "output": "CMakeFiles/raster_utils.dir/src/mesh_utils.cpp.o"
+},
+{
+  "directory": "/home/pole/code/CG/RasterTemplate/build",
+  "command": "/usr/sbin/c++  -I/home/pole/code/CG/RasterTemplate/src -I/home/pole/code/CG/RasterTemplate -O3 -DNDEBUG -std=gnu++20 -Wall -Wno-unused-function -O3 -march=native -o CMakeFiles/raster_utils.dir/src/render.cpp.o -c /home/pole/code/CG/RasterTemplate/src/render.cpp",
+  "file": "/home/pole/code/CG/RasterTemplate/src/render.cpp",
+  "output": "CMakeFiles/raster_utils.dir/src/render.cpp.o"
+},
+{
+  "directory": "/home/pole/code/CG/RasterTemplate/build",
+  "command": "/usr/sbin/c++  -I/home/pole/code/CG/RasterTemplate/src -I/home/pole/code/CG/RasterTemplate -O3 -DNDEBUG -std=gnu++20 -Wall -Wno-unused-function -O3 -march=native -o CMakeFiles/raster_utils.dir/src/geomath.cpp.o -c /home/pole/code/CG/RasterTemplate/src/geomath.cpp",
+  "file": "/home/pole/code/CG/RasterTemplate/src/geomath.cpp",
+  "output": "CMakeFiles/raster_utils.dir/src/geomath.cpp.o"
+},
+{
+  "directory": "/home/pole/code/CG/RasterTemplate/build",
+  "command": "/usr/sbin/cc  -I/home/pole/code/CG/RasterTemplate/src -I/home/pole/code/CG/RasterTemplate -O3 -DNDEBUG -std=gnu11 -Wall -Wno-unused-function -O3 -march=native -fopenmp -o CMakeFiles/main_cli.dir/src/main_cli.c.o -c /home/pole/code/CG/RasterTemplate/src/main_cli.c",
+  "file": "/home/pole/code/CG/RasterTemplate/src/main_cli.c",
+  "output": "CMakeFiles/main_cli.dir/src/main_cli.c.o"
+},
+{
+  "directory": "/home/pole/code/CG/RasterTemplate/build",
+  "command": "/usr/sbin/c++  -I/home/pole/code/CG/RasterTemplate/src -I/home/pole/code/CG/RasterTemplate -O3 -DNDEBUG -std=gnu++20 -Wall -Wno-unused-function -O3 -march=native -o CMakeFiles/main_app.dir/src/main_app.cpp.o -c /home/pole/code/CG/RasterTemplate/src/main_app.cpp",
+  "file": "/home/pole/code/CG/RasterTemplate/src/main_app.cpp",
+  "output": "CMakeFiles/main_app.dir/src/main_app.cpp.o"
+}
+]

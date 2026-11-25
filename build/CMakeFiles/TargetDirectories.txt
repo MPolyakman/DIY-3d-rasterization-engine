@@ -1,0 +1,5 @@
+/home/pole/code/CG/RasterTemplate/build/CMakeFiles/raster_utils.dir
+/home/pole/code/CG/RasterTemplate/build/CMakeFiles/main_cli.dir
+/home/pole/code/CG/RasterTemplate/build/CMakeFiles/main_app.dir
+/home/pole/code/CG/RasterTemplate/build/CMakeFiles/edit_cache.dir
+/home/pole/code/CG/RasterTemplate/build/CMakeFiles/rebuild_cache.dir

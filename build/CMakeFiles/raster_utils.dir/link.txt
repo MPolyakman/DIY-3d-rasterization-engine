@@ -1,0 +1,2 @@
+/usr/sbin/ar qc libraster_utils.a CMakeFiles/raster_utils.dir/src/image_utils.cpp.o CMakeFiles/raster_utils.dir/src/mesh_utils.cpp.o CMakeFiles/raster_utils.dir/src/render.cpp.o CMakeFiles/raster_utils.dir/src/geomath.cpp.o
+/usr/sbin/ranlib libraster_utils.a

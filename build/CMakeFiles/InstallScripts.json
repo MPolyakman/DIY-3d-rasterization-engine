@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/pole/code/CG/RasterTemplate/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
